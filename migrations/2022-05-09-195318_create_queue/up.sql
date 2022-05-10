@@ -1,0 +1,5 @@
+CREATE TABLE queue (
+  id SERIAL PRIMARY KEY,
+  owner INTEGER NOT NULL,
+  food TEXT NOT NULL
+)
