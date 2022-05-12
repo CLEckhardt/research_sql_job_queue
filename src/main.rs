@@ -3,51 +3,62 @@ extern crate diesel;
 extern crate dotenv;
 
 pub mod schema;
+mod store;
 
 use diesel::prelude::*;
 use dotenv::dotenv;
 use schema::queue;
 use std::env;
+use store::{Entry, NewEntry};
 
-fn establish_connection() -> PgConnection {
-    dotenv().ok();
+use diesel::connection::SimpleConnection;
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    PgConnection::establish(&database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+struct Instance {
+    id: u16,
+    claim: Option<u16>,
+    claimed_resource: Option<String>,
+    claim_attempts: u16,
 }
 
-fn create_entry(conn: &PgConnection, new_entry: NewEntry) -> Entry {
-    diesel::insert_into(queue::table)
-        .values(&new_entry)
-        .get_result(conn)
-        .expect("Error saving new entry")
+impl Instance {
+    fn new(id: u16) -> Self {
+        Self {
+            id,
+            claim: None,
+            claimed_resource: None,
+            claim_attempts: 0,
+        }
+    }
+
+    fn attempt_claim(&mut self, conn: &PgConnection) {
+        use self::schema::queue::dsl::*;
+        let updated = conn.batch_execute(&format!(
+            "\
+        BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE; \
+        UPDATE queue SET owner={} WHERE id = \
+                (SELECT id FROM queue \
+                 WHERE owner=0 \
+                 ORDER BY id \
+                 LIMIT 1); \
+        COMMIT;",
+            &self.id
+        ));
+        println!("Result: {:?}", updated);
+    }
 }
 
-fn reset_entries(conn: &PgConnection) {
+/*
+pub fn reset_entries(conn: &PgConnection) {
     use self::schema::queue::dsl::*;
     let reset = diesel::update(queue).set(owner.eq(0)).execute(conn);
-    println!("Reset {:?} entries", reset);
-}
-
-#[derive(Queryable)]
-struct Entry {
-    id: i32,
-    owner: i32,
-    food: String,
-}
-
-#[derive(Insertable)]
-#[table_name = "queue"]
-struct NewEntry {
-    owner: i32,
-    food: String,
-}
-
+*/
 fn main() {
     use self::schema::queue::dsl::*;
 
-    let connection = establish_connection();
+    let connection = store::establish_connection();
+
+    //let mut inst_5 = Instance::new(5);
+    //inst_5.attempt_claim(&connection);
 
     /*let new_entry = NewEntry {
         owner: 0,
@@ -57,7 +68,7 @@ fn main() {
     let entry = create_entry(&connection, new_entry);
     println!("Created new entry with id {}", entry.id);*/
 
-    reset_entries(&connection);
+    //store::reset_entries(&connection);
 
     let results = queue
         .limit(15)
