@@ -26,11 +26,10 @@ use std::env;
 use store::{Entry, NewEntry};
 
 use diesel::connection::SimpleConnection;
-use diesel::result::{DatabaseErrorKind, Error};
 use diesel::dsl::sql_query;
+use diesel::result::{DatabaseErrorKind, Error};
 
 //use tokio_postgres::{IsolationLevel, Transaction, NoTls, Error};
-
 
 struct Instance {
     id: u16,
@@ -53,9 +52,33 @@ impl Instance {
         use self::schema::queue::dsl::*;
 
         // Attempt to claim a resource
-        let transaction = "SELECT * FROM claim_resource();";
+        //let transaction = format!("SELECT * FROM claim_resource({});", self.id);
 
-            /*format!(
+        let updated: Result<Entry, Error> = conn.build_transaction().serializable().run(|| {
+            /*let ret = diesel::update(
+                queue.filter( //owner.eq(0)
+                    id.nullable().eq(queue
+                        .select(id)
+                        .filter(owner.eq(0))
+                        .order(id.desc())
+                        .single_value()),
+                ),
+            )
+            .set(owner.eq(*&self.id as i32))
+            .get_result(conn);
+            Ok(ret)*/
+        let transaction = format!("UPDATE queue SET owner={} WHERE id = \
+                (SELECT id FROM queue \
+                 WHERE owner=0 \
+                 ORDER BY id \
+                 LIMIT 1)
+                RETURNING *;",
+            &self.id
+        );
+        sql_query(&transaction).get_result(conn)
+        });
+
+        /*format!(
             "\
         BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE; \
         UPDATE queue SET owner={} WHERE id = \
@@ -67,7 +90,7 @@ impl Instance {
             &self.id
         );*/
         //let mut updated = conn.batch_execute(&transaction);
-        let updated: Result<Vec<Entry>, Error> = sql_query(transaction).load(conn);
+        //let updated: Result<Vec<Entry>, Error> = sql_query(transaction).load(conn);
         /*self.claim_attempts += 1;
         while updated != Ok(_) {
             if self.claim_attempts >= 10 {
@@ -107,9 +130,9 @@ fn main() {
 
     let connection = store::establish_connection();
 
-    //store::create_update(&connection).unwrap();
-    // let mut inst_1 = Instance::new(1);
-    // inst_1.attempt_claim(&connection);
+    // store::create_update(&connection).unwrap();
+    //let mut inst_1 = Instance::new(2);
+    //inst_1.attempt_claim(&connection);
 
     /*let new_entry = NewEntry {
         owner: 0,
@@ -119,7 +142,7 @@ fn main() {
     let entry = create_entry(&connection, new_entry);
     println!("Created new entry with id {}", entry.id);*/
 
-    // store::reset_entries(&connection);
+    store::reset_entries(&connection);
 
     let results = queue
         .limit(15)
@@ -171,7 +194,7 @@ async fn main() -> Result<(), Error> {
     }
 
     let rows = client.query("SELECT * FROM queue;", &[]).await?;
-    
+
     for entry in rows {
         let id: i32 = entry.try_get("id")?;
         let owner: i32 = entry.try_get("owner")?;

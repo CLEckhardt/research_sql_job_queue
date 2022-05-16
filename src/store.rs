@@ -46,7 +46,7 @@ pub fn reset_entries(conn: &PgConnection) {
 
 pub fn create_update(conn: &PgConnection) -> Result<(), Error> {
     conn.batch_execute("\
-    CREATE OR REPLACE FUNCTION claim_resource(claimer integer) \
+    CREATE OR REPLACE PROCEDURE claim_resource(claimer integer) \
     RETURNS TABLE(id integer, owner integer, resource varchar(48)) AS $$ \
     BEGIN SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; \
         UPDATE queue SET owner=claimer WHERE id = \
@@ -55,6 +55,6 @@ pub fn create_update(conn: &PgConnection) -> Result<(), Error> {
                  ORDER BY id \
                  LIMIT 1)
                  RETURNING *; \
-        END; $$ LANGUAGE plpgsql;
+        COMMIT; $$ LANGUAGE plpgsql;
         ")
 }
