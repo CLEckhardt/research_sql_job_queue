@@ -23,7 +23,7 @@ use diesel::prelude::*;
 use dotenv::dotenv;
 use schema::queue;
 use std::env;
-use store::{Entry, NewEntry};
+use store::{Entry, NewEntry, PgStore};
 
 use diesel::connection::SimpleConnection;
 use diesel::dsl::sql_query;
@@ -48,72 +48,27 @@ impl Instance {
         }
     }
 
-    fn attempt_claim(&mut self, conn: &PgConnection) {
+    fn attempt_claim(&mut self, store: &PgStore) {
         use self::schema::queue::dsl::*;
 
         // Attempt to claim a resource
-        //let transaction = format!("SELECT * FROM claim_resource({});", self.id);
 
-        let updated: Result<Entry, Error> = conn.build_transaction().serializable().run(|| {
-            /*let ret = diesel::update(
-                queue.filter( //owner.eq(0)
-                    id.nullable().eq(queue
-                        .select(id)
-                        .filter(owner.eq(0))
-                        .order(id.desc())
-                        .single_value()),
-                ),
-            )
-            .set(owner.eq(*&self.id as i32))
-            .get_result(conn);
-            Ok(ret)*/
-        let transaction = format!("UPDATE queue SET owner={} WHERE id = \
-                (SELECT id FROM queue \
-                 WHERE owner=0 \
-                 ORDER BY id \
-                 LIMIT 1)
-                RETURNING *;",
-            &self.id
-        );
-        sql_query(&transaction).get_result(conn)
-        });
+        let mut updated = store.execute_attempt(&self.id);
+        self.claim_attempts += 1;
 
-        /*format!(
-            "\
-        BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE; \
-        UPDATE queue SET owner={} WHERE id = \
-                (SELECT id FROM queue \
-                 WHERE owner=0 \
-                 ORDER BY id \
-                 LIMIT 1); \
-        COMMIT;",
-            &self.id
-        );*/
-        //let mut updated = conn.batch_execute(&transaction);
-        //let updated: Result<Vec<Entry>, Error> = sql_query(transaction).load(conn);
-        /*self.claim_attempts += 1;
-        while updated != Ok(_) {
-            if self.claim_attempts >= 10 {
-                break;
-            };
+        while updated.is_err() {
+            if self.claim_attempts >= 10 { break };
             match updated {
-                Err(Error::DatabaseError(DatabaseErrorKind::SerializationFailure, _)) => {
-                    updated = conn.batch_execute(&transaction);
+                // Retry on serialization error
+                Err(Error::SerializationError(_)) => {
+                    updated = store.execute_attempt(&self.id);
                     self.claim_attempts += 1;
                 }
-                _ => {
-                    break;
-                }
-            }
-        }*/
-        println!("Result: {:?}", updated);
+                _ => break,
+            };
+        };
 
-        // Check to see which resource(s) it claimed
-        self.claimed_resources = queue
-            .filter(owner.eq(*&self.id as i32))
-            .load::<Entry>(conn)
-            .expect("Error loading entries");
-        println!("Claimed resources: {:?}", &self.claimed_resources);
+        println!("Result: {:?}", updated);
     }
 }
 
@@ -128,85 +83,13 @@ TODO:
 fn main() {
     use self::schema::queue::dsl::*;
 
-    let connection = store::establish_connection();
+    let store = PgStore::new();
 
-    // store::create_update(&connection).unwrap();
-    //let mut inst_1 = Instance::new(2);
-    //inst_1.attempt_claim(&connection);
+    let mut inst_1 = Instance::new(2);
+    inst_1.attempt_claim(&store);
 
-    /*let new_entry = NewEntry {
-        owner: 0,
-        food: "corndog".to_string(),
-    };
 
-    let entry = create_entry(&connection, new_entry);
-    println!("Created new entry with id {}", entry.id);*/
+    //store::reset_entries();
+    store.print_all();
 
-    store::reset_entries(&connection);
-
-    let results = queue
-        .limit(15)
-        .load::<Entry>(&connection)
-        .expect("Error loading entries");
-
-    println!("Displaying {} entries", results.len());
-    for entry in results {
-        println!("");
-        println!("Id: {:?}", entry.id);
-        println!("Owner: {:?}", entry.owner);
-        println!("Food: {:?}", entry.food);
-    }
 }
-/*
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    dotenv().ok();
-
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
-        }
-    });
-
-    let update = client
-        .build_transaction()
-        .isolation_level(IsolationLevel::Serializable)
-        .start().await?
-        .query("\
-        UPDATE queue \
-        SET owner = 8 \
-        WHERE id = 10
-        RETURNING *; \
-        COMMIT;", &[]).await?;
-
-    for entry in update {
-        let id: i32 = entry.try_get("id")?;
-        let owner: i32 = entry.try_get("owner")?;
-        let food: &str = entry.try_get("food")?;
-        println!("");
-        println!("Id: {:?}", id);
-        println!("Owner: {:?}", owner);
-        println!("Food: {:?}", food);
-    }
-
-    let rows = client.query("SELECT * FROM queue;", &[]).await?;
-
-    for entry in rows {
-        let id: i32 = entry.try_get("id")?;
-        let owner: i32 = entry.try_get("owner")?;
-        let food: &str = entry.try_get("food")?;
-        println!("");
-        println!("Id: {:?}", id);
-        println!("Owner: {:?}", owner);
-        println!("Food: {:?}", food);
-    }
-
-
-    //let value: &str = rows[0].get(0);
-
-    Ok(())
-}*/
