@@ -91,4 +91,21 @@ impl PgStore {
 
     }
 
+    pub fn execute_attempt_control(&self, instance_id: &u16) -> Result<Vec<Entry>, Error> {
+        let transaction = format!(
+            "UPDATE queue SET owner={} WHERE id = \
+                (SELECT id FROM queue \
+                 WHERE owner=0 \
+                 ORDER BY id \
+                 LIMIT 1)
+                RETURNING *;",
+            instance_id
+        );
+
+        self.connection
+            .build_transaction()
+            .run(|| sql_query(&transaction).load(&self.connection))
+
+
+    }
 }

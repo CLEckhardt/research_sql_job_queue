@@ -8,5 +8,7 @@ edition = "2021"
 [dependencies]
 diesel = { version = "1.4.4", default-features = false, features = ["postgres"] }
 dotenv = "0.15.0"
+env_logger = "0.9"
+log = "0.4"
 tokio-postgres = "0.7"
 tokio = { version = "1.0", features = ["full"] }

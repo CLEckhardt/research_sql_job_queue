@@ -1,23 +1,16 @@
-//
-// WHAT ARE WE TESTING
-//
-//
-//
-// WHAT DO WE EXPECT TO SEE
-//
-//
-//
-// HOW DO WE KNOW IF THIS WON'T WORK
-//
-//
-//
-
+#[allow(dead_code, unused_must_use, unused_imports, unused_variables)]
 #[macro_use]
 extern crate diesel;
 extern crate dotenv;
 
+mod control;
+mod experiment;
 pub mod schema;
 mod store;
+
+use std::sync::{Arc, Mutex};
+
+use log::debug;
 
 use diesel::prelude::*;
 use dotenv::dotenv;
@@ -31,47 +24,6 @@ use diesel::result::{DatabaseErrorKind, Error};
 
 //use tokio_postgres::{IsolationLevel, Transaction, NoTls, Error};
 
-struct Instance {
-    id: u16,
-    claim: Option<u16>,
-    claimed_resources: Vec<Entry>,
-    claim_attempts: u16,
-}
-
-impl Instance {
-    fn new(id: u16) -> Self {
-        Self {
-            id,
-            claim: None,
-            claimed_resources: Vec::new(),
-            claim_attempts: 0,
-        }
-    }
-
-    fn attempt_claim(&mut self, store: &PgStore) {
-        use self::schema::queue::dsl::*;
-
-        // Attempt to claim a resource
-
-        let mut updated = store.execute_attempt(&self.id);
-        self.claim_attempts += 1;
-
-        while updated.is_err() {
-            if self.claim_attempts >= 10 { break };
-            match updated {
-                // Retry on serialization error
-                Err(Error::SerializationError(_)) => {
-                    updated = store.execute_attempt(&self.id);
-                    self.claim_attempts += 1;
-                }
-                _ => break,
-            };
-        };
-
-        println!("Result: {:?}", updated);
-    }
-}
-
 /*
 
 TODO:
@@ -83,13 +35,59 @@ TODO:
 fn main() {
     use self::schema::queue::dsl::*;
 
+    env_logger::init();
+
     let store = PgStore::new();
 
-    let mut inst_1 = Instance::new(2);
-    inst_1.attempt_claim(&store);
+    //let registry: Arc<Mutex<Vec<experiment::Instance>>> =
+    //    Arc::new(Mutex::new(Vec::new()));
+    let registry: Arc<Mutex<Vec<experiment::Instance>>> = Arc::new(Mutex::new(Vec::new()));
+    let temp_registry = Arc::clone(&registry);
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .thread_name("tokio_runtime")
+        .enable_all()
+        .build()
+        .unwrap();
 
-    //store::reset_entries();
+    let (tx, rx) = tokio::sync::watch::channel("wait");
+
+    let handle = std::thread::Builder::new()
+        .name("runtime_thread".to_string())
+        .spawn(move || {
+            runtime.block_on(async move {
+                for i in 1..=20 {
+                    tokio::spawn(experiment::Instance::spawn(
+                        i,
+                        PgStore::new(),
+                        rx.clone(),
+                        Arc::clone(&temp_registry),
+                    ));
+                    debug!("Spawned task: {}", i);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+            })
+        })
+        .unwrap();
+
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    debug!("GO!!!");
+    let sent = tx.send("go");
+
+    handle.join();
+
+    let _ = sent.unwrap();
+
     store.print_all();
-
+    {
+        let results = registry.lock().unwrap();
+        for r in &*results {
+            if r.claim_attempts < 11 {
+                println!("Result: {:?}", r);
+            }
+        }
+    }
+    store.reset_entries();
+    //println!("Result: {:?}", experiment_registry);
 }
