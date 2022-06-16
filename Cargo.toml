@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+control = []
+experiment = []
+
 [dependencies]
 diesel = { version = "1.4.4", default-features = false, features = ["postgres"] }
 dotenv = "0.15.0"

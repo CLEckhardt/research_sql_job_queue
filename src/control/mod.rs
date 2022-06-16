@@ -1,13 +1,11 @@
-
 use log::debug;
-use crate::store::{Entry, NewEntry, PgStore};
+use crate::store::{Entry, PgStore};
 use diesel::result::{DatabaseErrorKind, Error};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub struct Instance {
     pub idn: u16,
-    //claim: Option<u16>,
     pub claimed_resources: Option<Vec<Entry>>,
     pub claim_attempts: u16,
 }
@@ -28,8 +26,8 @@ impl Instance {
             loop {
                 // Attempt a claim
                 updated = store.execute_attempt_control(&idn);
-                debug!("Claim attempted by {}", &idn);
                 claim_attempts += 1;
+                debug!("{:?}", &updated);
                 match &updated {
                     Ok(v) => {
                         // Break if claim was successful
@@ -38,10 +36,12 @@ impl Instance {
                         };
                     }
                     // Retry on serialization error
-                    Err(Error::SerializationError(_)) => (),
+                    Err(Error::DatabaseError(DatabaseErrorKind::SerializationFailure, _)) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
                     Err(_) => break,
                 }
-                if claim_attempts >= 4 {
+                if claim_attempts >= 8 {
                     break;
                 };
             }

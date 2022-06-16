@@ -1,9 +1,10 @@
-#[allow(dead_code, unused_must_use, unused_imports, unused_variables)]
 #[macro_use]
 extern crate diesel;
 extern crate dotenv;
 
+#[cfg(feature = "control")]
 mod control;
+#[cfg(feature = "experiment")]
 mod experiment;
 pub mod schema;
 mod store;
@@ -12,35 +13,18 @@ use std::sync::{Arc, Mutex};
 
 use log::debug;
 
-use diesel::prelude::*;
-use dotenv::dotenv;
-use schema::queue;
-use std::env;
-use store::{Entry, NewEntry, PgStore};
+use store::PgStore;
 
-use diesel::connection::SimpleConnection;
 use diesel::dsl::sql_query;
-use diesel::result::{DatabaseErrorKind, Error};
-
-//use tokio_postgres::{IsolationLevel, Transaction, NoTls, Error};
-
-/*
-
-TODO:
-    Create tokio runtime
-    Spawn a bunch of instances
-
-*/
 
 fn main() {
-    use self::schema::queue::dsl::*;
-
     env_logger::init();
 
     let store = PgStore::new();
 
-    //let registry: Arc<Mutex<Vec<experiment::Instance>>> =
-    //    Arc::new(Mutex::new(Vec::new()));
+    #[cfg(feature = "control")]
+    let registry: Arc<Mutex<Vec<control::Instance>>> = Arc::new(Mutex::new(Vec::new()));
+    #[cfg(feature = "experiment")]
     let registry: Arc<Mutex<Vec<experiment::Instance>>> = Arc::new(Mutex::new(Vec::new()));
     let temp_registry = Arc::clone(&registry);
 
@@ -56,7 +40,15 @@ fn main() {
         .name("runtime_thread".to_string())
         .spawn(move || {
             runtime.block_on(async move {
-                for i in 1..=20 {
+                for i in 1..=12 {
+                    #[cfg(feature = "control")]
+                    tokio::spawn(control::Instance::spawn(
+                        i,
+                        PgStore::new(),
+                        rx.clone(),
+                        Arc::clone(&temp_registry),
+                    ));
+                    #[cfg(feature = "experiment")]
                     tokio::spawn(experiment::Instance::spawn(
                         i,
                         PgStore::new(),
@@ -75,7 +67,7 @@ fn main() {
     debug!("GO!!!");
     let sent = tx.send("go");
 
-    handle.join();
+    let _ = handle.join();
 
     let _ = sent.unwrap();
 
@@ -89,5 +81,4 @@ fn main() {
         }
     }
     store.reset_entries();
-    //println!("Result: {:?}", experiment_registry);
 }

@@ -1,5 +1,4 @@
 use crate::schema::queue::dsl::*;
-use crate::schema::*;
 
 use super::*;
 use diesel::prelude::*;
@@ -41,13 +40,14 @@ impl PgStore {
         PgConnection::establish(&database_url)
             .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
     }
-
-    pub fn create_entry(&self, new_entry: NewEntry) -> Entry {
-        diesel::insert_into(queue::table)
-            .values(&new_entry)
-            .get_result(&self.connection)
-            .expect("Error saving new entry")
-    }
+    /*
+        pub fn create_entry(&self, new_entry: NewEntry) -> Entry {
+            diesel::insert_into(queue::table)
+                .values(&new_entry)
+                .get_result(&self.connection)
+                .expect("Error saving new entry")
+        }
+    */
 
     pub fn reset_entries(&self) {
         use self::schema::queue::dsl::*;
@@ -72,6 +72,7 @@ impl PgStore {
         }
     }
 
+    #[cfg(feature = "experiment")]
     pub fn execute_attempt(&self, instance_id: &u16) -> Result<Vec<Entry>, Error> {
         let transaction = format!(
             "UPDATE queue SET owner={} WHERE id = \
@@ -87,10 +88,9 @@ impl PgStore {
             .build_transaction()
             .serializable()
             .run(|| sql_query(&transaction).load(&self.connection))
-
-
     }
 
+    #[cfg(feature = "control")]
     pub fn execute_attempt_control(&self, instance_id: &u16) -> Result<Vec<Entry>, Error> {
         let transaction = format!(
             "UPDATE queue SET owner={} WHERE id = \
@@ -105,7 +105,5 @@ impl PgStore {
         self.connection
             .build_transaction()
             .run(|| sql_query(&transaction).load(&self.connection))
-
-
     }
 }

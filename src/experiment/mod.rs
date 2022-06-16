@@ -1,13 +1,11 @@
-use crate::store::{Entry, NewEntry, PgStore};
+use crate::store::{Entry, PgStore};
 use diesel::result::{DatabaseErrorKind, Error};
-#[allow(dead_code, unused_must_use, unused_imports, unused_variables)]
 use log::debug;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub struct Instance {
     pub idn: u16,
-    //claim: Option<u16>,
     pub claimed_resources: Option<Vec<Entry>>,
     pub claim_attempts: u16,
 }
@@ -48,21 +46,6 @@ impl Instance {
                 };
             }
 
-            /*
-            while updated.is_err() {
-                if claim_attempts >= 10 {
-                    break;
-                };
-                match updated {
-                    // Retry on serialization error
-                    Err(Error::SerializationError(_)) => {
-                        updated = store.execute_attempt(&idn);
-                        claim_attempts += 1;
-                    }
-                    _ => break,
-                };
-            }*/
-
             {
                 let mut result = registry.lock().unwrap();
                 result.push(Self {
@@ -74,36 +57,4 @@ impl Instance {
         }
     }
 
-    /*
-    pub async fn attempt_claim(mut self) {
-        use crate::schema::queue::dsl::*;
-
-        // Attempt to claim a resource
-
-        let mut updated = store.execute_attempt(&self.id);
-        self.claim_attempts += 1;
-
-        while updated.is_err() {
-            if &self.claim_attempts >= &10 {
-                break;
-            };
-            match updated {
-                // Retry on serialization error
-                Err(Error::SerializationError(_)) => {
-                    updated = store.execute_attempt(&self.id);
-                    self.claim_attempts += 1;
-                }
-                _ => break,
-            };
-        }
-
-        self.claimed_resources = updated.ok();
-
-        {
-            let mut res = result.lock().unwrap();
-            res.push(self);
-        }
-
-        //println!("Result: {:?}", updated);
-    }*/
 }
